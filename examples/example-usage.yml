@@ -5,6 +5,8 @@
 name: Example - Call Reusable Build and Push (template)
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch: {}
 
 jobs:
@@ -26,3 +28,5 @@ jobs:
       # Replace these with secrets defined in the calling repository
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      GITOPS_REPO_TOKEN: ${{ secrets.GITOPS_REPO_TOKEN }}
+
