@@ -1,0 +1,93 @@
+name: 'build-push'
+description: 'Composite action: build, scan, tag and optionally push Docker image to ECR'
+inputs:
+  servicePath:
+    description: 'Path to service in the caller repo'
+    required: true
+  imageName:
+    description: 'Image name used locally (e.g. hrms/employee-service)'
+    required: true
+  registry:
+    description: 'ECR registry host (e.g. 123456789012.dkr.ecr.region.amazonaws.com)'
+    required: true
+  region:
+    description: 'AWS region'
+    required: true
+  push_image:
+    description: 'Whether to push image to ECR (true/false)'
+    required: false
+    default: 'false'
+  trivy_ignore:
+    description: 'Path to a trivy ignore file relative to repo root'
+    required: false
+    default: 'services/.trivyignore'
+runs:
+  using: 'composite'
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Set image tags
+      id: tags
+      run: |
+        FULL_TAG=${{ github.sha }}
+        SHORT_TAG=$(echo "$FULL_TAG" | cut -c1-8)
+        echo "full_tag=$FULL_TAG" >> $GITHUB_OUTPUT
+        echo "short_tag=$SHORT_TAG" >> $GITHUB_OUTPUT
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build Docker image (with cache)
+      working-directory: ${{ inputs.servicePath }}
+      env:
+        SHORT_TAG: ${{ steps.tags.outputs.short_tag }}
+      run: |
+        docker buildx build \
+          --cache-from=type=gha \
+          --cache-to=type=gha,mode=max \
+          --tag ${{ inputs.imageName }}:$SHORT_TAG \
+          --tag ${{ inputs.imageName }}:latest \
+          --load \
+          .
+
+    - name: Scan image with Trivy
+      uses: aquasecurity/trivy-action@0.33.1
+      with:
+        image-ref: ${{ inputs.imageName }}:${{ steps.tags.outputs.short_tag }}
+        format: table
+        exit-code: '1'
+        ignore-unfixed: true
+        vuln-type: os,library
+        severity: CRITICAL,HIGH
+        trivyignores: ${{ inputs.trivy_ignore }}
+
+    - name: Generate SBOM (CycloneDX)
+      uses: aquasecurity/trivy-action@0.33.1
+      with:
+        scan-type: 'image'
+        format: 'cyclonedx'
+        output: 'sbom.json'
+        image-ref: ${{ inputs.imageName }}:${{ steps.tags.outputs.short_tag }}
+
+    - name: Upload SBOM artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: sbom-${{ inputs.imageName }}
+        path: sbom.json
+
+    - name: Tag image for ECR
+      if: ${{ inputs.push_image == 'true' }}
+      env:
+        SHORT_TAG: ${{ steps.tags.outputs.short_tag }}
+      run: |
+        docker tag ${{ inputs.imageName }}:$SHORT_TAG ${{ inputs.registry }}/${{ inputs.imageName }}:$SHORT_TAG
+        docker tag ${{ inputs.imageName }}:latest ${{ inputs.registry }}/${{ inputs.imageName }}:latest
+
+    - name: Push image to ECR
+      if: ${{ inputs.push_image == 'true' }}
+      env:
+        SHORT_TAG: ${{ steps.tags.outputs.short_tag }}
+      run: |
+        docker push ${{ inputs.registry }}/${{ inputs.imageName }}:$SHORT_TAG
+        docker push ${{ inputs.registry }}/${{ inputs.imageName }}:latest

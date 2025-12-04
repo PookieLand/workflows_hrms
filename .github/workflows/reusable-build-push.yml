@@ -1,0 +1,201 @@
+name: Reusable - Build and Push Service to ECR
+
+on:
+  workflow_call:
+    inputs:
+      servicePath:
+        required: true
+        type: string
+      imageName:
+        required: true
+        type: string
+      registry:
+        required: true
+        type: string
+      region:
+        required: true
+        type: string
+      gitops_repo:
+        required: false
+        type: string
+      push_image:
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      GITOPS_REPO_TOKEN:
+        required: false
+
+jobs:
+  static-checks:
+    name: Static Security Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Lint Dockerfile (Hadolint)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: ${{ inputs.servicePath }}/Dockerfile
+          failure-threshold: error
+
+      - name: Scan Dockerfile for best practices (Trivy)
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          scan-type: 'config'
+          scan-ref: ${{ inputs.servicePath }}/Dockerfile
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH,MEDIUM,LOW'
+
+      - name: Scan for secrets (Trivy)
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          scan-type: 'fs'
+          scan-ref: ${{ inputs.servicePath }}
+          scanners: 'secret'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+
+  build-and-push:
+    name: Build and Push Image
+    needs: static-checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ inputs.region }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Set image tags
+        id: tags
+        run: |
+          FULL_TAG=${{ github.sha }}
+          SHORT_TAG=$(echo "$FULL_TAG" | cut -c1-8)
+          echo "full_tag=$FULL_TAG" >> $GITHUB_OUTPUT
+          echo "short_tag=$SHORT_TAG" >> $GITHUB_OUTPUT
+
+      - name: Build Docker image (with cache)
+        working-directory: ${{ inputs.servicePath }}
+        env:
+          SHORT_TAG: ${{ steps.tags.outputs.short_tag }}
+        run: |
+          docker buildx build \
+            --cache-from=type=gha \
+            --cache-to=type=gha,mode=max \
+            --tag ${{ inputs.imageName }}:$SHORT_TAG \
+            --tag ${{ inputs.imageName }}:latest \
+            --load \
+            .
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: ${{ inputs.imageName }}:${{ steps.tags.outputs.short_tag }}
+          format: table
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+          trivyignores: services/.trivyignore
+
+      - name: Generate SBOM (CycloneDX)
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          scan-type: 'image'
+          format: 'cyclonedx'
+          output: 'sbom.json'
+          image-ref: ${{ inputs.imageName }}:${{ steps.tags.outputs.short_tag }}
+
+      - name: Create safe artifact name
+        id: safe-name
+        run: |
+          SAFE_NAME=$(echo "${{ inputs.imageName }}" | tr '/' '-')
+          echo "artifact_name=sbom-$SAFE_NAME" >> $GITHUB_OUTPUT
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.safe-name.outputs.artifact_name }}
+          path: sbom.json
+
+      - name: Tag image for ECR
+        if: inputs.push_image == true
+        env:
+          SHORT_TAG: ${{ steps.tags.outputs.short_tag }}
+        run: |
+          docker tag ${{ inputs.imageName }}:$SHORT_TAG ${{ inputs.registry }}/${{ inputs.imageName }}:$SHORT_TAG
+          docker tag ${{ inputs.imageName }}:latest ${{ inputs.registry }}/${{ inputs.imageName }}:latest
+
+      - name: Push image to ECR
+        if: inputs.push_image == true
+        env:
+          SHORT_TAG: ${{ steps.tags.outputs.short_tag }}
+        run: |
+          docker push ${{ inputs.registry }}/${{ inputs.imageName }}:$SHORT_TAG
+          docker push ${{ inputs.registry }}/${{ inputs.imageName }}:latest
+
+      - name: Checkout gitops repo
+        if: ${{ inputs.push_image == true && inputs.gitops_repo != '' }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.gitops_repo }}
+          token: ${{ secrets.GITOPS_REPO_TOKEN }}
+          path: gitops
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Update gitops manifests image tag and push
+        if: ${{ inputs.push_image == true && inputs.gitops_repo != '' }}
+        env:
+          SHORT_TAG: ${{ steps.tags.outputs.short_tag }}
+          REGISTRY: ${{ inputs.registry }}
+          IMAGE: ${{ inputs.imageName }}
+          GITOPS_TOKEN: ${{ secrets.GITOPS_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd gitops
+          if [ -z "${GITOPS_TOKEN:-}" ]; then
+            echo "ERROR: secret GITOPS_REPO_TOKEN is empty. To push directly to main you must provide a token with write access in secrets.GITOPS_REPO_TOKEN"
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Find files containing the image name
+          FILES=$(grep -RIl --exclude-dir=.git --exclude=README.md -e "$IMAGE" . || true)
+          if [ -z "$FILES" ]; then
+            echo "No files found containing $IMAGE; nothing to update"
+            exit 0
+          fi
+          echo "Updating files:"
+          echo "$FILES"
+          # Replace occurrences of <registry>/<image>:<tag> and <image>:<tag>
+          for f in $FILES; do
+            perl -0777 -pe "s|${REGISTRY}/${IMAGE}:[^\s\"']+|${REGISTRY}/${IMAGE}:${SHORT_TAG}|g" -i "$f" || true
+            # Only replace bare image references that are NOT already prefixed by the registry.
+            # Use a negative lookbehind to avoid matching inside already-updated 'registry/image:tag'.
+            perl -0777 -pe "s|(?<!\Q${REGISTRY}/\E)${IMAGE}:[^\s\"']+|${REGISTRY}/${IMAGE}:${SHORT_TAG}|g" -i "$f" || true
+          done
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "chore: update ${IMAGE} image tag to ${SHORT_TAG}"
+          git push origin main

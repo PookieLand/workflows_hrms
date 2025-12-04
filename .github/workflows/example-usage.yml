@@ -1,0 +1,19 @@
+name: Example - Call Reusable Build and Push
+
+on:
+  push:
+    branches: [ main ]
+    paths: ['**']
+
+jobs:
+  build-and-push:
+    uses: PookieLand/workflows_hrms/.github/workflows/reusable-build-push.yml@main
+    with:
+      servicePath: '.'
+      imageName: 'hrms/example-service'
+      registry: '475936984863.dkr.ecr.ap-south-1.amazonaws.com'
+      region: 'ap-south-1'
+      push_image: false
+    secrets:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
