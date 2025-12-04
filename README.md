@@ -45,13 +45,18 @@ Secrets
 
 Versioned releases
 
-This repository uses a version-file driven release model for the reusable workflow. Bump the `WORKFLOW_VERSION` file in the repository root to publish a new tagged release for the reusable workflow; the workflow `.github/workflows/release-on-version-change.yml` will create the tag `workflow-v<version>` and a GitHub release for that tag.
+This repository uses a version-file driven release model for the reusable workflow. Bump the `WORKFLOW_VERSION` file in the repository root to publish a new tagged release for the reusable workflow; the workflow `.github/workflows/release-on-version-change.yml` will create the tag `v<version>` and a GitHub release for that tag.
 
 Callers should reference the generated tag in their `uses:` lines for reproducible builds, for example:
 
 ```yaml
-uses: PookieLand/workflows_hrms/.github/workflows/reusable-build-push.yml@workflow-v1.0.0
+uses: PookieLand/workflows_hrms/.github/workflows/reusable-build-push.yml@v1.0.0
 ```
+
+Latest release
+
+- **`v1.0.0`** — created 04 Dec 2025. Use this tag in callers for a stable, reproducible workflow reference.
+  (Previously published as `workflow-v1.0.0`; both tags may exist during migration.)
 
 Contact
 

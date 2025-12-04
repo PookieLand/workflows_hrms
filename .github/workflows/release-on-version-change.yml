@@ -54,7 +54,7 @@ jobs:
             echo "Version in $file is empty, skipping"
             exit 0
           fi
-          tag="workflow-v${ver}"
+          tag="v${ver}"
           if git rev-parse "$tag" >/dev/null 2>&1; then
             echo "$tag already exists, skipping"
             exit 0

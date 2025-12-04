@@ -13,11 +13,12 @@ jobs:
   build-and-push:
     # Option A: call the reusable workflow in this repository by copying this
     # file into your repo's `.github/workflows/` directory and pin to a tag:
-    # uses: PookieLand/workflows_hrms/.github/workflows/reusable-build-push.yml@workflow-v1.0.0
+    # uses: PookieLand/workflows_hrms/.github/workflows/reusable-build-push.yml@v1.0.0
+    # (Latest release: v1.0.0 — created 04 Dec 2025)
     #
     # Option B: if you copy this workflow into the workflows folder of this
     # repository (or another), you can call the local reusable workflow path:
-    uses: PookieLand/workflows_hrms/.github/workflows/reusable-build-push.yml@workflow-v1.0.0
+    uses: PookieLand/workflows_hrms/.github/workflows/reusable-build-push.yml@v1.0.0
     with:
       servicePath: '.'
       imageName: 'hrms/example-service'
