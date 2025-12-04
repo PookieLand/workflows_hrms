@@ -24,7 +24,9 @@ jobs:
       imageName: 'hrms/example-service'
       registry: '475936984863.dkr.ecr.ap-south-1.amazonaws.com'
       region: 'ap-south-1'
-      push_image: false
+      push_image: ${{ github.event_name == 'push' }}
+      gitops_repo: PookieLand/gitops-manifests
+      
     secrets:
       # Replace these with secrets defined in the calling repository
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
