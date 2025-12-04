@@ -1,0 +1,28 @@
+# Template example: copy this file into your repository's `.github/workflows/` folder
+# or use the remote `uses:` syntax shown in the README. This file is a template
+# and kept under `examples/` to avoid GitHub executing it in this repo.
+
+name: Example - Call Reusable Build and Push (template)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  build-and-push:
+    # Option A: call the reusable workflow in this repository by copying this
+    # file into your repo's `.github/workflows/` directory and pin to a tag:
+    # uses: PookieLand/workflows_hrms/.github/workflows/reusable-build-push.yml@workflow-v1.0.0
+    #
+    # Option B: if you copy this workflow into the workflows folder of this
+    # repository (or another), you can call the local reusable workflow path:
+    uses: PookieLand/workflows_hrms/.github/workflows/reusable-build-push.yml@workflow-v1.0.0
+    with:
+      servicePath: '.'
+      imageName: 'hrms/example-service'
+      registry: '475936984863.dkr.ecr.ap-south-1.amazonaws.com'
+      region: 'ap-south-1'
+      push_image: false
+    secrets:
+      # Replace these with secrets defined in the calling repository
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}

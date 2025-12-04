@@ -43,41 +43,11 @@ Secrets
 - If you prefer to keep the central matrix detection (build multiple services from one repo), create a separate repository that contains a matrix workflow which calls this reusable workflow multiple times via `uses:` and a `strategy.matrix`.
 -
 
-Composite action: `build-push`
+Versioned releases
 
-This repository also exposes a composite action at `.github/actions/build-push` you can call from inside a job when you need step-level reuse instead of a whole reusable workflow. Use it when you want the build and push steps to run inside the caller job and share the caller's runner environment.
+This repository uses a version-file driven release model for the reusable workflow. Bump the `WORKFLOW_VERSION` file in the repository root to publish a new tagged release for the reusable workflow; the workflow `.github/workflows/release-on-version-change.yml` will create the tag `workflow-v<version>` and a GitHub release for that tag.
 
-Example (call action inside a job):
-
-```yaml
-jobs:
-  test-and-build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Run build-push steps
-        uses: PookieLand/workflows_hrms/.github/actions/build-push@main
-        with:
-          servicePath: '.'
-          imageName: 'hrms/example-service'
-          registry: '475936984863.dkr.ecr.ap-south-1.amazonaws.com'
-          region: 'ap-south-1'
-          push_image: false
-```
-
-Version files and release automation
-
-You can now control releases by bumping version files in the repository root:
-
-- `ACTION_VERSION` — bump this to release a new composite action version (creates tag `action-v<version>` and a GitHub release).
-- `WORKFLOW_VERSION` — bump this to release a new reusable workflow version (creates tag `workflow-v<version>` and a GitHub release).
-
-When you update either file and push to `main`, the repository workflow `release-on-version-change.yml` will create the corresponding tag and a GitHub release. Callers should reference the tagged ref in their `uses:` lines for reproducible builds, for example:
-
-```yaml
-uses: PookieLand/workflows_hrms/.github/actions/build-push@action-v1.0.0
-```
-
-Or for the workflow:
+Callers should reference the generated tag in their `uses:` lines for reproducible builds, for example:
 
 ```yaml
 uses: PookieLand/workflows_hrms/.github/workflows/reusable-build-push.yml@workflow-v1.0.0
@@ -86,3 +56,9 @@ uses: PookieLand/workflows_hrms/.github/workflows/reusable-build-push.yml@workfl
 Contact
 
 If you want changes to the workflow (inputs, scans, policies), update the workflow or action in this repo and then bump the reference in callers (prefer tag/sha for reproducibility).
+
+Examples
+
+Example workflows and templates are kept in the `examples/` folder to avoid accidental execution by GitHub. Copy the template you want into your repository's `.github/workflows/` directory (or reference the released tag directly with `uses:`) and update secrets/inputs as required.
+
+Path: `examples/example-usage.yml` — a template showing how to call the reusable workflow and where to place secrets.
