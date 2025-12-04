@@ -9,7 +9,7 @@ Usage
 ```yaml
 jobs:
   build-and-push:
-    uses: PookieLand/workflows_hrms/.github/workflows/reusable-build-push.yml@main
+    uses: PookieLand/workflows_hrms/.github/workflows/reusable-build-push.yml@v1.0.0
     with:
       servicePath: '.'                # relative to the calling repository root
       imageName: 'hrms/employee-service'
@@ -56,7 +56,6 @@ uses: PookieLand/workflows_hrms/.github/workflows/reusable-build-push.yml@v1.0.0
 Latest release
 
 - **`v1.0.0`** — created 04 Dec 2025. Use this tag in callers for a stable, reproducible workflow reference.
-  (Previously published as `workflow-v1.0.0`; both tags may exist during migration.)
 
 Contact
 
