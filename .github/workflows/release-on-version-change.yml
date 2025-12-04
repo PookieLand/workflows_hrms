@@ -1,0 +1,91 @@
+name: Release on version file change
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'ACTION_VERSION'
+      - 'WORKFLOW_VERSION'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed version files
+        id: detect
+        run: |
+          CHANGED=$(git diff-tree --no-commit-id --name-only -r ${{ github.sha }} || true)
+          echo "changed=$CHANGED"
+          ACTION_CHANGED=false
+          WORKFLOW_CHANGED=false
+          for f in $CHANGED; do
+            if [[ "$f" == "ACTION_VERSION" ]]; then
+              ACTION_CHANGED=true
+            fi
+            if [[ "$f" == "WORKFLOW_VERSION" ]]; then
+              WORKFLOW_CHANGED=true
+            fi
+          done
+          echo "action_changed=$ACTION_CHANGED" >> $GITHUB_OUTPUT
+          echo "workflow_changed=$WORKFLOW_CHANGED" >> $GITHUB_OUTPUT
+
+      - name: Create release(s) from version files
+        if: ${{ steps.detect.outputs.action_changed == 'true' || steps.detect.outputs.workflow_changed == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git fetch --tags
+
+          # Helper: create tag and release
+          create_release() {
+            type="$1"   # action or workflow
+            file="$2"   # file path
+            prefix="$3" # tag prefix: action-v or workflow-v
+
+            if [ ! -f "$file" ]; then
+              echo "File $file not found, skipping"
+              return
+            fi
+            ver=$(cat "$file" | head -n1 | tr -d ' \t\n\r')
+            if [ -z "$ver" ]; then
+              echo "Version in $file is empty, skipping"
+              return
+            fi
+            tag="${prefix}${ver}"
+
+            # If tag already exists, skip
+            if git rev-parse "$tag" >/dev/null 2>&1; then
+              echo "$tag already exists, skipping"
+              return
+            fi
+
+            echo "Creating tag $tag"
+            git tag -a "$tag" -m "Release $tag (from $file)"
+            git push origin "$tag"
+
+            # Create GitHub release
+            echo "Creating GitHub release for $tag"
+            gh_release_payload=$(jq -n --arg tag "$tag" --arg name "$tag" --arg body "Release $tag created from $file in $GITHUB_REPOSITORY" '{tag_name: $tag, name: $name, body: $body, draft: false, prerelease: false}')
+
+            # Use GitHub REST API to create release (uses GITHUB_TOKEN)
+            api_url="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases"
+            response=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" -H "Content-Type: application/json" -d "$gh_release_payload" "$api_url")
+            echo "$response"
+          }
+
+          if [ "${{ steps.detect.outputs.action_changed }}" = "true" ]; then
+            create_release "action" "ACTION_VERSION" "action-v"
+          fi
+
+          if [ "${{ steps.detect.outputs.workflow_changed }}" = "true" ]; then
+            create_release "workflow" "WORKFLOW_VERSION" "workflow-v"
+          fi

@@ -1,0 +1,80 @@
+name: Auto-tag action/workflow on change
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/actions/**'
+      - '.github/workflows/**'
+
+permissions:
+  contents: write
+
+jobs:
+  tag-on-change:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed files in this push
+        id: detect
+        run: |
+          CHANGED=$(git diff-tree --no-commit-id --name-only -r ${{ github.sha }} || true)
+          ACTION_CHANGED=false
+          WORKFLOW_CHANGED=false
+          for f in $CHANGED; do
+            if [[ "$f" == .github/actions/* ]]; then
+              ACTION_CHANGED=true
+            fi
+            if [[ "$f" == .github/workflows/* ]]; then
+              WORKFLOW_CHANGED=true
+            fi
+          done
+          echo "action_changed=$ACTION_CHANGED" >> $GITHUB_OUTPUT
+          echo "workflow_changed=$WORKFLOW_CHANGED" >> $GITHUB_OUTPUT
+
+      - name: Create/increment action tag
+        if: ${{ steps.detect.outputs.action_changed == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git fetch --tags
+          latest=$(git tag --list "action-v*" --sort=-v:refname | head -n1)
+          if [ -z "$latest" ]; then
+            new_tag="action-v1.0.0"
+          else
+            ver=${latest#action-v}
+            IFS='.' read -r maj min pat <<< "$ver"
+            pat=$((pat+1))
+            new_tag="action-v${maj}.${min}.${pat}"
+          fi
+          echo "Creating tag $new_tag"
+          git tag -a "$new_tag" -m "Auto tag $new_tag (action changed)"
+          git push origin "$new_tag"
+
+      - name: Create/increment workflow tag
+        if: ${{ steps.detect.outputs.workflow_changed == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git fetch --tags
+          latest=$(git tag --list "workflow-v*" --sort=-v:refname | head -n1)
+          if [ -z "$latest" ]; then
+            new_tag="workflow-v1.0.0"
+          else
+            ver=${latest#workflow-v}
+            IFS='.' read -r maj min pat <<< "$ver"
+            pat=$((pat+1))
+            new_tag="workflow-v${maj}.${min}.${pat}"
+          fi
+          echo "Creating tag $new_tag"
+          git tag -a "$new_tag" -m "Auto tag $new_tag (workflow changed)"
+          git push origin "$new_tag"
+
+      - name: Output tags
+        run: |
+          echo "Action changed: ${{ steps.detect.outputs.action_changed }}"
+          echo "Workflow changed: ${{ steps.detect.outputs.workflow_changed }}"
