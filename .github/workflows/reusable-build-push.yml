@@ -161,7 +161,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Update gitops manifests image tag and push
+      - name: Update only values-staging.yaml image tag and push
         if: ${{ inputs.push_image == true && inputs.gitops_repo != '' }}
         env:
           SHORT_TAG: ${{ steps.tags.outputs.short_tag }}
@@ -177,25 +177,29 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # Find files containing the image name
-          FILES=$(grep -RIl --exclude-dir=.git --exclude=README.md -e "$IMAGE" . || true)
-          if [ -z "$FILES" ]; then
-            echo "No files found containing $IMAGE; nothing to update"
+          # Derive service name from image name (assumes last path component)
+          SERVICE_NAME=$(basename "$IMAGE")
+          if [ "$SERVICE_NAME" = "frontend" ]; then
+            VALUES_FILE="base/frontend/values-staging.yaml"
+          else
+            VALUES_FILE="base/services/${SERVICE_NAME}/values-staging.yaml"
+          fi
+          if [ ! -f "$VALUES_FILE" ]; then
+            echo "No values-staging.yaml found for $SERVICE_NAME at $VALUES_FILE; nothing to update"
             exit 0
           fi
-          echo "Updating files:"
-          echo "$FILES"
-          # Replace occurrences of <registry>/<image>:<tag> and <image>:<tag>
-          for f in $FILES; do
-            perl -0777 -pe "s|${REGISTRY}/${IMAGE}:[^\s\"']+|${REGISTRY}/${IMAGE}:${SHORT_TAG}|g" -i "$f" || true
-            # Only replace bare image references that are NOT already prefixed by the registry.
-            # Use a negative lookbehind to avoid matching inside already-updated 'registry/image:tag'.
-            perl -0777 -pe "s|(?<!\Q${REGISTRY}/\E)${IMAGE}:[^\s\"']+|${REGISTRY}/${IMAGE}:${SHORT_TAG}|g" -i "$f" || true
-          done
-          git add -A
+          echo "Updating $VALUES_FILE with tag: $SHORT_TAG"
+          # Use yq if available, else fallback to sed/awk
+          if command -v yq >/dev/null 2>&1; then
+            yq e '.image.tag = strenv(SHORT_TAG)' -i "$VALUES_FILE"
+          else
+            # Replace the tag: value under image: (YAML, 2-space indent)
+            awk -v tag="$SHORT_TAG" '/^image:/ {print; in_image=1; next} in_image && /^  tag:/ {sub(/tag:.*/,"tag: " tag); in_image=0} {print}' "$VALUES_FILE" > tmp && mv tmp "$VALUES_FILE"
+          fi
+          git add "$VALUES_FILE"
           if git diff --staged --quiet; then
             echo "No changes to commit"
             exit 0
           fi
-          git commit -m "chore: update ${IMAGE} image tag to ${SHORT_TAG}"
+          git commit -m "chore: update ${IMAGE} image tag to ${SHORT_TAG} in values-staging.yaml"
           git push origin main
