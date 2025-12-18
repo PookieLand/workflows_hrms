@@ -15,6 +15,18 @@ on:
       region:
         required: true
         type: string
+      vite_client_id:
+        required: false
+        type: string
+      vite_org_base_url:
+        required: false
+        type: string
+      vite_app_name:
+        required: false
+        type: string
+      vite_api_base_url:
+        required: false
+        type: string
       gitops_repo:
         required: false
         type: string
@@ -91,7 +103,30 @@ jobs:
           echo "full_tag=$FULL_TAG" >> $GITHUB_OUTPUT
           echo "short_tag=$SHORT_TAG" >> $GITHUB_OUTPUT
 
+      - name: Build Docker image (frontend) with Vite args
+        if: ${{ endsWith(inputs.imageName, '/frontend') || inputs.imageName == 'frontend' }}
+        working-directory: ${{ inputs.servicePath }}
+        env:
+          SHORT_TAG: ${{ steps.tags.outputs.short_tag }}
+          VITE_CLIENT_ID: ${{ inputs.vite_client_id }}
+          VITE_ORG_BASE_URL: ${{ inputs.vite_org_base_url }}
+          VITE_APP_NAME: ${{ inputs.vite_app_name }}
+          VITE_API_BASE_URL: ${{ inputs.vite_api_base_url }}
+        run: |
+          docker buildx build \
+            --cache-from=type=gha \
+            --cache-to=type=gha,mode=max \
+            --build-arg "VITE_CLIENT_ID=${VITE_CLIENT_ID}" \
+            --build-arg "VITE_ORG_BASE_URL=${VITE_ORG_BASE_URL}" \
+            --build-arg "VITE_APP_NAME=${VITE_APP_NAME}" \
+            --build-arg "VITE_API_BASE_URL=${VITE_API_BASE_URL}" \
+            --tag ${{ inputs.imageName }}:$SHORT_TAG \
+            --tag ${{ inputs.imageName }}:latest \
+            --load \
+            .
+
       - name: Build Docker image (with cache)
+        if: ${{ !(endsWith(inputs.imageName, '/frontend') || inputs.imageName == 'frontend') }}
         working-directory: ${{ inputs.servicePath }}
         env:
           SHORT_TAG: ${{ steps.tags.outputs.short_tag }}
